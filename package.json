@@ -28,8 +28,11 @@
     "commander": "^11.0.0",
     "execa": "^7.1.1",
     "figlet": "^1.6.0",
+    "geoip-lite": "^1.4.10",
     "gradient-string": "^2.0.2",
     "inquirer": "^9.2.7",
-    "ora": "^5.4.1"
+    "node-wifi": "^2.0.16",
+    "ora": "^5.4.1",
+    "terminal-kit": "^3.1.2"
   }
 }
