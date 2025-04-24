@@ -13,6 +13,224 @@ const fs = require('fs');
 const os = require('os');
 const cliProgress = require('cli-progress');
 const path = require('path');
+const wifi = require('node-wifi');
+const geoip = require('geoip-lite');
+const termKit = require('terminal-kit').terminal;
+const { EventEmitter } = require('events');
+
+
+// Initialize event system
+const securityEvents = new EventEmitter();
+
+// Initialize wifi module
+wifi.init({
+  iface: null // Use default WiFi interface
+});
+
+// Security risk levels
+const RISK_LEVELS = {
+  HIGH: 'HIGH',
+  MEDIUM: 'MEDIUM',
+  LOW: 'LOW',
+  SAFE: 'SAFE'
+};
+
+// Known secure networks - in real app, would be stored in a config file
+const KNOWN_NETWORKS = [
+  'MyHomeNetwork',
+  'MyWorkNetwork'
+];
+
+// High-risk countries - simplified list for demo
+const HIGH_RISK_COUNTRIES = [
+  'CN', 'RU', 'IR', 'SA', 'VN', 'CU'
+];
+
+// Connection stats
+let connectionStats = {
+  totalConnections: 0,
+  totalTime: 0,
+  countriesVisited: new Set(),
+  dataSaved: {} // Will track how much potentially sensitive data was protected
+};
+
+// Function to check WiFi security
+async function checkWifiSecurity() {
+  try {
+    const networks = await wifi.scan();
+    const currentConnections = await wifi.getCurrentConnections();
+    
+    if (currentConnections.length === 0) {
+      return { risk: RISK_LEVELS.MEDIUM, reason: 'Not connected to WiFi' };
+    }
+    
+    const currentNetwork = currentConnections[0];
+    
+    // Check if it's a known network
+    if (KNOWN_NETWORKS.includes(currentNetwork.ssid)) {
+      return { risk: RISK_LEVELS.SAFE, reason: 'Connected to known network' };
+    }
+    
+    // Check if it's open (no security)
+    if (!currentNetwork.security || currentNetwork.security === 'Open') {
+      return { risk: RISK_LEVELS.HIGH, reason: 'Connected to unsecured network' };
+    }
+    
+    // Check if it's a public hotspot (common names)
+    if (/public|hotel|airport|cafe|free|guest/i.test(currentNetwork.ssid)) {
+      return { risk: RISK_LEVELS.MEDIUM, reason: 'Connected to public network' };
+    }
+    
+    return { risk: RISK_LEVELS.LOW, reason: 'Connected to secured network' };
+  } catch (error) {
+    console.error('Failed to check WiFi security:', error.message);
+    return { risk: RISK_LEVELS.MEDIUM, reason: 'Unable to determine network security' };
+  }
+}
+
+// Function to check location security based on IP
+async function checkLocationSecurity(ip) {
+  try {
+    const geo = geoip.lookup(ip);
+    
+    if (!geo) {
+      return { risk: RISK_LEVELS.MEDIUM, reason: 'Unable to determine location' };
+    }
+    
+    if (HIGH_RISK_COUNTRIES.includes(geo.country)) {
+      return { 
+        risk: RISK_LEVELS.HIGH, 
+        reason: `Located in high-risk country: ${geo.country}`,
+        location: geo
+      };
+    }
+    
+    return { 
+      risk: RISK_LEVELS.LOW, 
+      reason: 'Located in standard-risk country',
+      location: geo
+    };
+  } catch (error) {
+    console.error('Failed to check location security:', error.message);
+    return { risk: RISK_LEVELS.MEDIUM, reason: 'Unable to determine location security' };
+  }
+}
+
+// Function to display security dashboard
+function showSecurityDashboard(wifiSecurity, locationSecurity, isConnected) {
+  termKit.clear();
+  
+  // Display header
+  termKit.bold.cyan('\n╔═══════════════════════════════════════════════════════════╗\n');
+  termKit.bold.cyan('║                DIGITAL NOMAD SECURITY SUITE                ║\n');
+  termKit.bold.cyan('╚═══════════════════════════════════════════════════════════╝\n\n');
+  
+  // Display connection status
+  if (isConnected) {
+    termKit.green('■ ').bold('VPN STATUS: ').green('CONNECTED\n\n');
+  } else {
+    termKit.red('■ ').bold('VPN STATUS: ').red('DISCONNECTED\n\n');
+  }
+  
+  // Display WiFi security
+  termKit.bold('▸ WiFi Security: ');
+  switch(wifiSecurity.risk) {
+    case RISK_LEVELS.HIGH:
+      termKit.red(`${wifiSecurity.risk} - ${wifiSecurity.reason}\n`);
+      break;
+    case RISK_LEVELS.MEDIUM:
+      termKit.yellow(`${wifiSecurity.risk} - ${wifiSecurity.reason}\n`);
+      break;
+    case RISK_LEVELS.LOW:
+      termKit.green(`${wifiSecurity.risk} - ${wifiSecurity.reason}\n`);
+      break;
+    case RISK_LEVELS.SAFE:
+      termKit.brightGreen(`${wifiSecurity.risk} - ${wifiSecurity.reason}\n`);
+      break;
+  }
+  
+  // Display location security
+  termKit.bold('▸ Location Security: ');
+  switch(locationSecurity.risk) {
+    case RISK_LEVELS.HIGH:
+      termKit.red(`${locationSecurity.risk} - ${locationSecurity.reason}\n`);
+      break;
+    case RISK_LEVELS.MEDIUM:
+      termKit.yellow(`${locationSecurity.risk} - ${locationSecurity.reason}\n`);
+      break;
+    case RISK_LEVELS.LOW:
+    case RISK_LEVELS.SAFE:
+      termKit.green(`${locationSecurity.risk} - ${locationSecurity.reason}\n`);
+      break;
+  }
+  
+  if (locationSecurity.location) {
+    termKit(`  Location: ${locationSecurity.location.country}, ${locationSecurity.location.city}\n`);
+  }
+  
+  // Display usage stats
+  termKit.bold('\n▸ Security Statistics:\n');
+  termKit(`  Total protected connections: ${connectionStats.totalConnections}\n`);
+  termKit(`  Total protected time: ${Math.round(connectionStats.totalTime / 60)} minutes\n`);
+  termKit(`  Countries visited: ${Array.from(connectionStats.countriesVisited).join(', ') || 'None'}\n\n`);
+  
+  // Display quick commands
+  termKit.bold('▸ Quick Commands:\n');
+  termKit.cyan('  [C] Connect    ');
+  termKit.yellow('[D] Disconnect    ');
+  termKit.red('[P] Panic Button    ');
+  termKit.blue('[R] Refresh    ');
+  termKit.gray('[Q] Quit\n\n');
+}
+
+// Function to implement panic button - quickly disconnect and clear data
+async function panicButtonAction(cfgPath) {
+  const panicSpinner = ora('‼️ PANIC BUTTON ACTIVATED - Disconnecting and securing...').start();
+  
+  try {
+    // Disconnect VPN
+    await execaCommand(`wg-quick down ${cfgPath}`);
+    
+    // Clear DNS cache
+    if (os.platform() === 'darwin') {
+      await execaCommand('sudo killall -HUP mDNSResponder');
+    } else if (os.platform() === 'linux') {
+      await execaCommand('sudo systemd-resolve --flush-caches');
+    }
+    
+    // Clear browser cache (this would be more sophisticated in a real app)
+    console.log('Consider clearing your browser cache manually');
+    
+    panicSpinner.succeed(chalk.green('✅ Panic mode completed - Connection terminated securely'));
+  } catch (error) {
+    panicSpinner.fail(chalk.red(`Failed during panic sequence: ${error.message}`));
+  }
+}
+
+// Function to safely connect to VPN (ensures cleanup of existing connections)
+async function safeConnect(cfgPath) {
+  try {
+    // First try to bring down any existing connection (ignore errors)
+    try {
+      await execaCommand(`wg-quick down ${cfgPath}`);
+      console.log(chalk.gray("Cleaned up existing connection"));
+    } catch (e) {
+      // Ignore errors if the connection doesn't exist
+      if (e.stderr && e.stderr.includes("is not a WireGuard interface")) {
+        console.log(chalk.gray("No existing connection to clean up"));
+      } else {
+        console.log(chalk.gray(`Cleanup error (continuing anyway): ${e.message}`));
+      }
+    }
+    
+    // Now start a new connection
+    await execaCommand(`wg-quick up ${cfgPath}`);
+    return true;
+  } catch (error) {
+    console.error(chalk.red(`Failed to start WireGuard: ${error.message}`));
+    return false;
+  }
+}
 
 // Load validators from JSON file
 let validators;
@@ -254,7 +472,17 @@ async function main() {
   // Get IP before connection
   const ipBefore = await getPublicIP();
   console.log(chalk.yellow(`📡 Current IP: ${ipBefore}`));
+  const wifiSecurity = await checkWifiSecurity();
+  const locationSecurity = await checkLocationSecurity(ipBefore);
   
+  // Show initial dashboard
+  showSecurityDashboard(wifiSecurity, locationSecurity, false);
+  
+  // High risk notification
+  if (wifiSecurity.risk === RISK_LEVELS.HIGH || locationSecurity.risk === RISK_LEVELS.HIGH) {
+    termKit.bold.red('\n⚠️  HIGH SECURITY RISK DETECTED! VPN STRONGLY RECOMMENDED ⚠️\n\n');
+  }
+
   // Connect to VPN
   const connectSpinner = ora(`Connecting to TPN VPN (${selectedRegion})...`).start();
   let peerConfig;
@@ -303,7 +531,7 @@ async function main() {
     process.exit(1);
   }
   
-  // Start WireGuard connection
+  // Start WireGuard connection with safe connect
   console.log(boxen(chalk.blue(`⚙️ Activating TPN VPN connection to ${selectedRegion}`), {
     padding: 1,
     borderColor: 'blue',
@@ -312,10 +540,14 @@ async function main() {
   
   try {
     if (debugMode) {
-      console.log(chalk.blue('Debug: Running command:'), `wg-quick up ${cfgPath}`);
+      console.log(chalk.blue('Debug: Running command with safe connect wrapper'));
     }
     
-    await execaCommand(`wg-quick up ${cfgPath}`);
+    // Use safeConnect instead of direct command
+    const success = await safeConnect(cfgPath);
+    if (!success) {
+      throw new Error("Failed to establish connection");
+    }
   } catch (error) {
     console.error(chalk.red(`Failed to start WireGuard: ${error.message}`));
     
@@ -332,6 +564,11 @@ async function main() {
   console.log(chalk.green('\n✅ Connection established! You are now connected to TPN VPN.'));
   console.log(chalk.gray('⚠️ Press Ctrl+C to disconnect\n'));
   
+  if (locationSecurity.location) {
+    connectionStats.countriesVisited.add(locationSecurity.location.country);
+  }
+  connectionStats.totalConnections++;
+  
   // Create progress bar for lease time
   const totalSeconds = leaseTime * 60;
   const progressBar = new cliProgress.SingleBar({
@@ -345,6 +582,7 @@ async function main() {
   const timer = setInterval(() => {
     elapsed++;
     progressBar.update(elapsed);
+    connectionStats.totalTime++; // Update total time
     
     if (elapsed >= totalSeconds) {
       clearInterval(timer);
@@ -364,20 +602,50 @@ async function main() {
     }
   }, 1000);
   
-  // Handle CTRL+C
-  process.on('SIGINT', () => {
-    progressBar.stop();
-    console.log(chalk.yellow('\n\nDisconnecting from TPN VPN...'));
-    
-    execaCommand(`wg-quick down ${cfgPath}`)
-      .then(() => {
-        console.log(chalk.green('✅ Successfully disconnected'));
-        process.exit(0);
-      })
-      .catch(error => {
-        console.error(chalk.red(`Failed to disconnect: ${error.message}`));
-        process.exit(1);
-      });
+  // Add keyboard controls for dashboard
+  termKit.grabInput();
+  termKit.on('key', async (key) => {
+    if (key === 'p' || key === 'P') {
+      // Panic button
+      await panicButtonAction(cfgPath);
+      process.exit(0);
+    } else if (key === 'r' || key === 'R') {
+      // Refresh dashboard with updated security info
+      const currentIp = await getPublicIP();
+      const refreshedWifiSecurity = await checkWifiSecurity();
+      const refreshedLocationSecurity = await checkLocationSecurity(currentIp);
+      showSecurityDashboard(refreshedWifiSecurity, refreshedLocationSecurity, true);
+    } else if (key === 'd' || key === 'D') {
+      // Disconnect
+      termKit.grabInput(false);
+      progressBar.stop();
+      console.log(chalk.yellow('\n\nDisconnecting from TPN VPN...'));
+      
+      execaCommand(`wg-quick down ${cfgPath}`)
+        .then(() => {
+          console.log(chalk.green('✅ Successfully disconnected'));
+          process.exit(0);
+        })
+        .catch(error => {
+          console.error(chalk.red(`Failed to disconnect: ${error.message}`));
+          process.exit(1);
+        });
+    } else if (key === 'q' || key === 'Q' || key === 'CTRL_C') {
+      // Quit
+      termKit.grabInput(false);
+      progressBar.stop();
+      console.log(chalk.yellow('\n\nDisconnecting from TPN VPN...'));
+      
+      execaCommand(`wg-quick down ${cfgPath}`)
+        .then(() => {
+          console.log(chalk.green('✅ Successfully disconnected'));
+          process.exit(0);
+        })
+        .catch(error => {
+          console.error(chalk.red(`Failed to disconnect: ${error.message}`));
+          process.exit(1);
+        });
+    }
   });
 }
 
