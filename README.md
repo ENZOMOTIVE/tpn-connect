@@ -1,13 +1,9 @@
 # 🌐 Digital Nomad Security Suite
 
-An Enhanced Command-Line Tool for Safe, Seamless VPN Connections Anywhere in the World.
 
-> Formerly **TPN Connect**, this upgraded tool now includes automatic security checks, location-based risk assessment, emergency disconnect (panic button), and real-time statistics — all tailored for digital nomads and privacy-conscious users.
+## Project Tags
 
----
-
-![image](https://github.com/user-attachments/assets/2c25fd1f-e020-4cd1-8cf9-7901aa55d028)
-
+- No requested category tag currently applies.
 
 ## 🚀 Features
 
