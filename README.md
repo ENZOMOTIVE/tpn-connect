@@ -1,9 +1,12 @@
 # 🌐 Digital Nomad Security Suite
 
+An Enhanced Command-Line Tool for Safe, Seamless VPN Connections Anywhere in the World.
 
-## Project Tags
+> Formerly **TPN Connect**, this upgraded tool now includes automatic security checks, location-based risk assessment, emergency disconnect (panic button), and real-time statistics — all tailored for digital nomads and privacy-conscious users.
 
-- No requested category tag currently applies.
+---
+
+![image](https://github.com/user-attachments/assets/2c25fd1f-e020-4cd1-8cf9-7901aa55d028)
 
 ## 🚀 Features
 
@@ -86,3 +89,12 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - The Peoples Network (TPN) for creating a decentralized VPN infrastructure
 - WireGuard for providing the underlying VPN technology
 - The open-source community for the amazing tools used in this project
+
+## Project Metadata
+
+| Field | Details |
+| --- | --- |
+| Repository | `ENZOMOTIVE/tpn-connect` |
+| Categories | `General` |
+| Primary stack | Node.js, JavaScript |
+
